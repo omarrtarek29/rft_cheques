@@ -137,13 +137,15 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Payment Entry": {
+		"on_submit": "rft_cheques.overrides.payment_entry.payment_entry.create_cheque_from_payment_entry",
+	},
+}
+
+doctype_js = {
+	"Payment Entry": "rft_cheques/overrides/payment_entry/payment_entry.js",
+}
 
 # Scheduled Tasks
 # ---------------
@@ -246,4 +248,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

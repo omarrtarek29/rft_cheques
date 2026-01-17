@@ -1,0 +1,121 @@
+# RFT Cheques App - Cursor Rules
+
+## App Overview
+This is a Frappe/ERPNext app for comprehensive cheque management. The app handles both incoming and outgoing cheques with full lifecycle tracking, accounting integration, and bank-specific configurations.
+
+## Key Components
+
+### 1. Cheque DocType (`rft_cheques/rft_cheques/doctype/cheque/`)
+- **Purpose**: Central doctype for tracking all cheque transactions
+- **Key Fields**:
+  - `cheque_number`: Unique cheque identifier
+  - `category`: "Incoming" or "Outgoing"
+  - `type`: "Opened" or "Crossed"
+  - `restriction`: "None" or "First Beneficiary"
+  - `current_status`: Lifecycle status (Draft, In Hand, Under Collection, Cleared, Bounced, Endorsed, Issued, Settled, Rejected, Cancelled)
+  - `physical_location`: Main Safe, Branch Safe, At Bank, With Supplier
+  - `issuer_bank`, `issuer_branch`, `bank_account_no`: Banking details
+  - `related_transaction_type` & `related_transaction`: Links to Payment Entry or Journal Entry
+  - `endorsed_to`: Supplier link when endorsed
+  - `collection_fees`: Bank charges
+  - `accounting_entries`: Child table for GL entries
+
+### 2. Payment Entry Customization (`rft_cheques/rft_cheques/custom/payment_entry.json`)
+- **Custom Fields**:
+  - `linked_cheque`: Link to existing Cheque record (optional)
+  - `cheque_number`: Cheque number (required if not linked)
+  - `cheque_type`: Opened/Crossed
+  - `cheque_restriction`: None/First Beneficiary
+  - `issuer_bank`, `issuer_branch`, `bank_account_no`: Banking details
+  - `physical_location`: Current location
+  - `cheque_status`: For incoming cheques (In Hand, Under Collection, Cleared, Bounced, Endorsed, Returned, Cancelled)
+  - `cheque_status_pay`: For outgoing cheques (Issued, Settled, Rejected, Cancelled)
+  - `cheque_action`: Action dropdown (shown after submit)
+  - `collection_fee_amount`: Calculated bank fees
+  - `endorsed_party_type`, `endorsed_party_name`, `endorsed_party_account`: For endorsement
+
+### 3. Payment Entry Override (`rft_cheques/overrides/payment_entry/`)
+- **Python (`payment_entry.py`)**:
+  - `create_cheque_from_payment_entry()`: Creates Cheque record on Payment Entry submit when cheque fields are filled
+  - `handle_cheque_action()`: Handles cheque actions after submit (on_update_after_submit)
+  - `_calculate_collection_fee()`: Calculates fees based on bank configuration
+  - `_create_journal_entry_for_cheque()`: Auto-creates GL entries when enabled
+- **JavaScript (`payment_entry.js`)**:
+  - Auto-fills fields from linked Cheque
+  - Dynamic action options based on status
+  - Validates First Beneficiary restriction
+  - Field queries and filters
+
+### 4. Company Custom Fields (`rft_cheques/rft_cheques/custom/company.json`)
+- **Accounting Configuration**:
+  - `notes_in_hand_account`: Default account for received cheques in safe
+  - `notes_under_collection_account`: Intermediary account for cheques at bank
+  - `notes_payable_account`: Liability account for issued cheques
+  - `bank_charges_expense_account`: Expense account for collection fees
+  - `endorsed_cheques_interim_account`: Optional interim account for endorsed cheques
+- **Policy Settings**:
+  - `due_date_warning_days`: Days before due date to send notification
+  - `allow_partial_collection`: Enable partial payments
+  - `automatic_gl_posting`: Auto-create GL entries on status change
+  - `enforce_endorsement_rule`: Block endorsing First Beneficiary cheques
+
+### 5. Bank Account Custom Fields (`rft_cheques/rft_cheques/custom/bank_account.json`)
+- **Bank-Specific Configuration**:
+  - `collection_fee_fixed`: Fixed fee per cheque
+  - `collection_fee_percentage`: Percentage for high-value cheques
+  - `collection_fee_minimum`: Minimum fee
+  - `collection_fee_maximum`: Maximum fee cap
+  - `clearance_days_internal`: Days for same bank cheques (0-1)
+  - `clearance_days_external`: Days for other banks (2-3)
+
+## Workflow
+
+### Incoming Cheques (Receive Payment Entry)
+1. User creates Payment Entry with mode_of_payment_type = "Cheque"
+2. User fills cheque fields: cheque_number, cheque_type, issuer_bank, etc.
+3. On submit: `create_cheque_from_payment_entry()` creates Cheque record
+4. Cheque status: "In Hand"
+5. After submit: User can perform actions (Deposit for Collection, Immediate Collection, Endorse, etc.)
+6. Actions update Cheque status and optionally create Journal Entries
+
+### Outgoing Cheques (Pay Payment Entry)
+1. User creates Payment Entry with mode_of_payment_type = "Cheque"
+2. User fills cheque fields
+3. On submit: `create_cheque_from_payment_entry()` creates Cheque record
+4. Cheque status: "Issued"
+5. After submit: User can perform actions (Clear Cheque, Withdraw Cheque)
+
+## Important Notes
+
+1. **Cheque Creation**: Cheque records are created automatically on Payment Entry submit when:
+   - `mode_of_payment_type == "Cheque"`
+   - `linked_cheque` is NOT set (if linked_cheque exists, don't create new)
+   - Cheque fields are filled
+
+2. **Field Mapping**: When creating Cheque from Payment Entry:
+   - `cheque_number` → `cheque.cheque_number`
+   - `cheque_type` → `cheque.type`
+   - `cheque_restriction` → `cheque.restriction`
+   - `issuer_bank` → `cheque.issuer_bank`
+   - `issuer_branch` → `cheque.issuer_branch`
+   - `bank_account_no` (or `custom_bank_account_no`) → `cheque.bank_account_no`
+   - `physical_location` → `cheque.physical_location`
+   - `paid_amount` → `cheque.amount`
+   - `posting_date` → `cheque.issue_date` and `cheque.maturity_date` (can be updated later)
+   - `party` (for Receive) → `cheque.issuer_name`
+   - `company` (for Receive) → `cheque.beneficiary_name`
+   - `company` (for Pay) → `cheque.issuer_name`
+   - `party` (for Pay) → `cheque.beneficiary_name`
+
+3. **Status Transitions**: Valid status transitions are enforced in Cheque doctype validation
+
+4. **Accounting**: Journal Entries are created automatically when `automatic_gl_posting` is enabled in Company settings
+
+5. **Bank Fees**: Collection fees are calculated automatically based on bank configuration when clearing cheques
+
+## Code Style
+- Use Frappe conventions
+- Python: snake_case for functions, proper error handling with frappe.throw()
+- JavaScript: camelCase for functions, use frappe.call() for server methods
+- Always validate required fields before creating records
+- Use frappe.db.set_value() for updates, frappe.get_doc() for full document operations
